@@ -18,7 +18,7 @@ import java.util.concurrent.*;
 @Command(name = "host", description = "Scans a network for reachable hosts.")
 public class Host implements Callable<String> {
 
-    @Parameters(index = "0", description = "The network to scan for reachable hosts.", arity = "1")
+    @Parameters(index = "0", description = "The network to be scanned for reachable hosts.", arity = "1")
     private String network;
 
     @Override
@@ -58,9 +58,9 @@ public class Host implements Callable<String> {
             builder.append(System.lineSeparator());
             scans.forEach((key, value) -> {
                 if (value) {
-                    builder.append("%s is up".formatted(key));
+                    builder.append("Host %s is up".formatted(key));
                 } else {
-                    builder.append("%s is down or non-existent".formatted(key));
+                    builder.append("Host %s is down or non-existent".formatted(key));
                 }
                 builder.append(System.lineSeparator());
             });
@@ -70,8 +70,8 @@ public class Host implements Callable<String> {
 
     private static void checkHostsReachability(BlockingQueue<String> hosts, ConcurrentMap<String, Boolean> scans) throws NotOpenException, PcapNativeException, InterruptedException {
         PcapNetworkInterface networkInterface = NMapUtility.findNetworkInterface();
-        InetAddress sourceIpAddress = NMapUtility.findIpAddress(networkInterface);
         MacAddress sourceMacAddress = NMapUtility.findMacAddress(networkInterface);
+        InetAddress sourceIpAddress = NMapUtility.findIpAddress(networkInterface);
         try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
             while (!Thread.currentThread().isInterrupted() && !hosts.isEmpty()) {
                 String host = hosts.poll();
@@ -80,7 +80,7 @@ public class Host implements Callable<String> {
                 }
                 try {
                     InetAddress destinationIpAddress = InetAddress.getByName(host);
-                    boolean isReachable = checkHostReachability(executor, networkInterface, sourceIpAddress, sourceMacAddress, destinationIpAddress);
+                    boolean isReachable = checkHostReachability(executor, networkInterface, sourceMacAddress, sourceIpAddress, destinationIpAddress);
                     scans.put(destinationIpAddress.toString(), isReachable);
                 } catch (UnknownHostException exception) {
                     scans.put(host, false);
@@ -89,11 +89,11 @@ public class Host implements Callable<String> {
         }
     }
 
-    private static boolean checkHostReachability(ExecutorService executor, PcapNetworkInterface networkInterface, InetAddress sourceIpAddress, MacAddress sourceMacAddress, InetAddress destinationIpAddress) throws NotOpenException, PcapNativeException, InterruptedException {
+    private static boolean checkHostReachability(ExecutorService executor, PcapNetworkInterface networkInterface, MacAddress sourceMacAddress, InetAddress sourceIpAddress, InetAddress destinationIpAddress) throws NotOpenException, PcapNativeException, InterruptedException {
         if (destinationIpAddress.equals(sourceIpAddress)) {
             return true;
         }
-        Optional<MacAddress> destinationMacAddress = resolveHostMacAddress(executor, networkInterface, sourceIpAddress, sourceMacAddress, destinationIpAddress);
+        Optional<MacAddress> destinationMacAddress = resolveHostMacAddress(executor, networkInterface, sourceMacAddress, sourceIpAddress, destinationIpAddress);
         if (destinationMacAddress.isEmpty()) {
             return false;
         }
@@ -101,18 +101,18 @@ public class Host implements Callable<String> {
                 PcapHandle sendHandle = networkInterface.openLive(NMapConstants.SNAP_LENGTH, PcapNetworkInterface.PromiscuousMode.NONPROMISCUOUS, NMapConstants.HANDLE_TIMEOUT);
                 PcapHandle receiveHandle = networkInterface.openLive(NMapConstants.SNAP_LENGTH, PcapNetworkInterface.PromiscuousMode.NONPROMISCUOUS, NMapConstants.HANDLE_TIMEOUT)
         ) {
-            receiveHandle.setFilter("icmp and icmp[0] = 0 and src host %s and ether src %s and dst host %s and ether dst %s".formatted(
-                    Pcaps.toBpfString(destinationIpAddress),
+            receiveHandle.setFilter(NMapConstants.ICMP_FILTER.formatted(
                     Pcaps.toBpfString(destinationMacAddress.get()),
-                    Pcaps.toBpfString(sourceIpAddress),
-                    Pcaps.toBpfString(sourceMacAddress)
+                    Pcaps.toBpfString(destinationIpAddress),
+                    Pcaps.toBpfString(sourceMacAddress),
+                    Pcaps.toBpfString(sourceIpAddress)
             ), BpfProgram.BpfCompileMode.OPTIMIZE);
             Future<Boolean> future = executor.submit(new ListenerTask<>(receiveHandle, new IcmpPacketListener(receiveHandle)));
             sendHandle.sendPacket(NMapUtility.buildIcmpPacket(
-                    sourceIpAddress,
                     sourceMacAddress,
-                    destinationIpAddress,
-                    destinationMacAddress.get()
+                    sourceIpAddress,
+                    destinationMacAddress.get(),
+                    destinationIpAddress
             ));
             try {
                 return future.get(NMapConstants.LISTENER_TIMEOUT, TimeUnit.MILLISECONDS);
@@ -124,7 +124,7 @@ public class Host implements Callable<String> {
         }
     }
 
-    private static Optional<MacAddress> resolveHostMacAddress(ExecutorService executor, PcapNetworkInterface networkInterface, InetAddress sourceIpAddress, MacAddress sourceMacAddress, InetAddress destinationIpAddress) throws PcapNativeException, NotOpenException, InterruptedException {
+    private static Optional<MacAddress> resolveHostMacAddress(ExecutorService executor, PcapNetworkInterface networkInterface, MacAddress sourceMacAddress, InetAddress sourceIpAddress, InetAddress destinationIpAddress) throws PcapNativeException, NotOpenException, InterruptedException {
         if (destinationIpAddress.equals(sourceIpAddress)) {
             return Optional.of(sourceMacAddress);
         }
@@ -132,15 +132,15 @@ public class Host implements Callable<String> {
                 PcapHandle sendHandle = networkInterface.openLive(NMapConstants.SNAP_LENGTH, PcapNetworkInterface.PromiscuousMode.NONPROMISCUOUS, NMapConstants.HANDLE_TIMEOUT);
                 PcapHandle receiveHandle = networkInterface.openLive(NMapConstants.SNAP_LENGTH, PcapNetworkInterface.PromiscuousMode.NONPROMISCUOUS, NMapConstants.HANDLE_TIMEOUT)
         ) {
-            receiveHandle.setFilter("arp and arp[6:2] = 2 and src host %s and dst host %s and ether dst %s".formatted(
+            receiveHandle.setFilter(NMapConstants.ARP_FILTER.formatted(
                     Pcaps.toBpfString(destinationIpAddress),
-                    Pcaps.toBpfString(sourceIpAddress),
-                    Pcaps.toBpfString(sourceMacAddress)
+                    Pcaps.toBpfString(sourceMacAddress),
+                    Pcaps.toBpfString(sourceIpAddress)
             ), BpfProgram.BpfCompileMode.OPTIMIZE);
             Future<Optional<MacAddress>> future = executor.submit(new ListenerTask<>(receiveHandle, new ArpPacketListener(receiveHandle)));
             sendHandle.sendPacket(NMapUtility.buildArpPacket(
-                    sourceIpAddress,
                     sourceMacAddress,
+                    sourceIpAddress,
                     destinationIpAddress
             ));
             try {

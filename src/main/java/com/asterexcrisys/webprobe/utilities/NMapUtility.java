@@ -11,8 +11,10 @@ import org.pcap4j.packet.*;
 import org.pcap4j.packet.namednumber.*;
 import org.pcap4j.util.ByteArrays;
 import org.pcap4j.util.MacAddress;
+import java.io.IOException;
 import java.net.Inet4Address;
 import java.net.InetAddress;
+import java.net.ServerSocket;
 import java.util.*;
 
 public class NMapUtility {
@@ -93,15 +95,14 @@ public class NMapUtility {
         }).findFirst().orElseThrow(() -> new PcapNativeException("no network interface found on the device"));
     }
 
-    // TODO: check if the network is in the same network as the host
-    public static InetAddress findNetworkMask(PcapNetworkInterface networkInterface) throws PcapNativeException {
-        return networkInterface.getAddresses().stream().filter((address) -> {
+    public static MacAddress findMacAddress(PcapNetworkInterface networkInterface) throws PcapNativeException {
+        return MacAddress.getByAddress(networkInterface.getLinkLayerAddresses().stream().filter((address) -> {
             try {
-                return address.getAddress() instanceof Inet4Address;
+                return address instanceof MacAddress;
             } catch (Exception exception) {
                 return false;
             }
-        }).findFirst().orElseThrow(() -> new PcapNativeException("no network mask found on the network interface")).getNetmask();
+        }).findFirst().orElseThrow(() -> new PcapNativeException("no mac address found on the network interface")).getAddress());
     }
 
     public static InetAddress findIpAddress(PcapNetworkInterface networkInterface) throws PcapNativeException {
@@ -114,17 +115,25 @@ public class NMapUtility {
         }).findFirst().orElseThrow(() -> new PcapNativeException("no ip address found on the network interface")).getAddress();
     }
 
-    public static MacAddress findMacAddress(PcapNetworkInterface networkInterface) throws PcapNativeException {
-        return MacAddress.getByAddress(networkInterface.getLinkLayerAddresses().stream().filter((address) -> {
+    public static int findAvailablePort() throws PcapNativeException {
+        try (ServerSocket socket = new ServerSocket(0)) {
+            return socket.getLocalPort();
+        } catch (IOException exception) {
+            throw new PcapNativeException("no available port found on this device");
+        }
+    }
+
+    public static InetAddress findNetworkMask(PcapNetworkInterface networkInterface) throws PcapNativeException {
+        return networkInterface.getAddresses().stream().filter((address) -> {
             try {
-                return address instanceof MacAddress;
+                return address.getAddress() instanceof Inet4Address;
             } catch (Exception exception) {
                 return false;
             }
-        }).findFirst().orElseThrow(() -> new PcapNativeException("no mac address found on the network interface")).getAddress());
+        }).findFirst().orElseThrow(() -> new PcapNativeException("no network mask found on the network interface")).getNetmask();
     }
 
-    public static Packet buildArpPacket(InetAddress sourceIpAddress, MacAddress sourceMacAddress, InetAddress destinationIpAddress) {
+    public static Packet buildArpPacket(MacAddress sourceMacAddress, InetAddress sourceIpAddress, InetAddress destinationIpAddress) {
         ArpPacket.Builder arpPacket = new ArpPacket.Builder()
                 .hardwareType(ArpHardwareType.ETHERNET)
                 .protocolType(EtherType.IPV4)
@@ -144,10 +153,10 @@ public class NMapUtility {
         return ethernetPacket.build();
     }
 
-    public static Packet buildIcmpPacket(InetAddress sourceIpAddress, MacAddress sourceMacAddress, InetAddress destinationIpAddress, MacAddress destinationMacAddress) {
+    public static Packet buildIcmpPacket(MacAddress sourceMacAddress, InetAddress sourceIpAddress, MacAddress destinationMacAddress, InetAddress destinationIpAddress) {
         IcmpV4EchoPacket.Builder icmpV4EchoPacket = new IcmpV4EchoPacket.Builder()
-                .identifier((short) 1)
-                .sequenceNumber((short) 1)
+                .identifier((short) (Math.random() * Short.MAX_VALUE))
+                .sequenceNumber((short) (Math.random() * Short.MAX_VALUE))
                 .payloadBuilder(new UnknownPacket.Builder().rawData(NMapConstants.DUMMY_PAYLOAD));
         IcmpV4CommonPacket.Builder icmpV4CommonPacket = new IcmpV4CommonPacket.Builder()
                 .type(IcmpV4Type.ECHO)
@@ -157,7 +166,7 @@ public class NMapUtility {
         IpV4Packet.Builder ipV4Packet = new IpV4Packet.Builder()
                 .version(IpVersion.IPV4)
                 .tos(IpV4Rfc791Tos.newInstance((byte) 0))
-                .identification((short) 1)
+                .identification((short) (Math.random() * Short.MAX_VALUE))
                 .ttl((byte) 64)
                 .protocol(IpNumber.ICMPV4)
                 .srcAddr((Inet4Address) sourceIpAddress)
@@ -174,9 +183,44 @@ public class NMapUtility {
         return ethernetPacket.build();
     }
 
-    // TODO: implement the builder for the TCP SYN packet to be used for port scanning
-    public static Packet buildTcpPacket() {
-        return null;
+    public static Packet buildTcpPacket(MacAddress sourceMacAddress, InetAddress sourceIpAddress, int sourcePort, MacAddress destinationMacAddress, InetAddress destinationIpAddress, int destinationPort) {
+        TcpPacket.Builder tcpPacket = new TcpPacket.Builder()
+                .srcAddr(sourceIpAddress)
+                .dstAddr(destinationIpAddress)
+                .srcPort(TcpPort.getInstance((short) sourcePort))
+                .dstPort(TcpPort.getInstance((short) destinationPort))
+                .sequenceNumber((int) (Math.random() * Integer.MAX_VALUE))
+                .dataOffset((byte) 5)
+                .ack(false)
+                .urg(false)
+                .ack(false)
+                .psh(false)
+                .rst(false)
+                .syn(true)
+                .fin(false)
+                .window((short) 65535)
+                .urgentPointer((short) 0)
+                .payloadBuilder(null)
+                .correctChecksumAtBuild(true)
+                .correctLengthAtBuild(true);
+        IpV4Packet.Builder ipV4Packet = new IpV4Packet.Builder()
+                .version(IpVersion.IPV4)
+                .tos(IpV4Rfc791Tos.newInstance((byte) 0))
+                .identification((short) (Math.random() * Short.MAX_VALUE))
+                .ttl((byte) 64)
+                .protocol(IpNumber.TCP)
+                .srcAddr((Inet4Address) sourceIpAddress)
+                .dstAddr((Inet4Address) destinationIpAddress)
+                .payloadBuilder(tcpPacket)
+                .correctChecksumAtBuild(true)
+                .correctLengthAtBuild(true);
+        EthernetPacket.Builder ethernetPacket = new EthernetPacket.Builder()
+                .type(EtherType.IPV4)
+                .payloadBuilder(ipV4Packet)
+                .paddingAtBuild(true)
+                .srcAddr(sourceMacAddress)
+                .dstAddr(destinationMacAddress);
+        return ethernetPacket.build();
     }
 
     public static Optional<ArpPacket> parseArpPacket(Packet packet) {
@@ -217,8 +261,26 @@ public class NMapUtility {
         }
     }
 
+    // TODO: fix the issue with the IpV4Packet parsing of the TOS field
     public static Optional<TcpPacket> parseTcpPacket(Packet packet) {
-        return Optional.empty();
+        if (packet == null) {
+            return Optional.empty();
+        }
+        try {
+            EthernetPacket ethernetPacket = EthernetPacket.newPacket(packet.getRawData(), 0, packet.length());
+            Packet payload = ethernetPacket.getPayload();
+            if (payload == null) {
+                return Optional.empty();
+            }
+            /*IpV4Packet ipV4Packet = IpV4Packet.newPacket(payload.getRawData(), 0, payload.length());
+            payload = ipV4Packet.getPayload();
+            if (payload == null) {
+                return Optional.empty();
+            }*/
+            return Optional.of(TcpPacket.newPacket(payload.getRawData(), 20, payload.length() - 20));
+        } catch (IllegalRawDataException exception) {
+            return Optional.empty();
+        }
     }
 
 }
