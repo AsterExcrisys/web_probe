@@ -1,27 +1,26 @@
 package com.asterexcrisys.webprobe.services;
 
+import com.asterexcrisys.webprobe.utilities.NMapUtility;
 import org.pcap4j.core.NotOpenException;
-import org.pcap4j.core.PacketListener;
 import org.pcap4j.core.PcapHandle;
 import org.pcap4j.packet.ArpPacket;
 import org.pcap4j.packet.Packet;
 import org.pcap4j.packet.namednumber.ArpOperation;
 import org.pcap4j.util.MacAddress;
-import java.net.InetAddress;
 import java.util.Objects;
 import java.util.Optional;
 
-public class ArpPacketListener implements PacketListener {
+public class ArpPacketListener implements ResultListener<Optional<MacAddress>> {
 
     private final PcapHandle handle;
-    private final InetAddress address;
     private MacAddress result;
 
-    public ArpPacketListener(PcapHandle handle, InetAddress address) {
+    public ArpPacketListener(PcapHandle handle) {
         this.handle = Objects.requireNonNull(handle);
-        this.address = Objects.requireNonNull(address);
+        result = null;
     }
 
+    @Override
     public Optional<MacAddress> result() {
         if (result == null) {
             return Optional.empty();
@@ -31,14 +30,11 @@ public class ArpPacketListener implements PacketListener {
 
     @Override
     public void gotPacket(Packet packet) {
-        if (!packet.contains(ArpPacket.class)) {
+        Optional<ArpPacket> arpPacket = NMapUtility.parseArpPacket(packet);
+        if (arpPacket.isEmpty() || !arpPacket.get().getHeader().getOperation().equals(ArpOperation.REPLY)) {
             return;
         }
-        ArpPacket arpPacket = packet.get(ArpPacket.class);
-        if (!arpPacket.getHeader().getOperation().equals(ArpOperation.REPLY) || !arpPacket.getHeader().getDstProtocolAddr().equals(address)) {
-            return;
-        }
-        result = arpPacket.getHeader().getDstHardwareAddr();
+        result = arpPacket.get().getHeader().getSrcHardwareAddr();
         try {
             handle.breakLoop();
         } catch (NotOpenException ignored) {

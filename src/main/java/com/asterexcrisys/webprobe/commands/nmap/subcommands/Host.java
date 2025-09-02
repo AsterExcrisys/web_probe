@@ -3,6 +3,7 @@ package com.asterexcrisys.webprobe.commands.nmap.subcommands;
 import com.asterexcrisys.webprobe.constants.NMapConstants;
 import com.asterexcrisys.webprobe.services.ArpPacketListener;
 import com.asterexcrisys.webprobe.services.IcmpPacketListener;
+import com.asterexcrisys.webprobe.services.ListenerTask;
 import com.asterexcrisys.webprobe.utilities.NMapUtility;
 import org.pcap4j.core.*;
 import org.pcap4j.util.MacAddress;
@@ -13,7 +14,6 @@ import java.net.UnknownHostException;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.*;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 @Command(name = "host", description = "Scans a network for reachable hosts.")
 public class Host implements Callable<String> {
@@ -23,9 +23,12 @@ public class Host implements Callable<String> {
 
     @Override
     public String call() throws Exception {
+        if (!NMapUtility.isLocalNetwork(network)) {
+            throw new IllegalArgumentException("network is not local (cannot be directly accessed from one of this device's interfaces)");
+        }
         Optional<List<String>> network = NMapUtility.parseNetworkHosts(this.network);
         if (network.isEmpty()) {
-            throw new IllegalArgumentException("network was incorrectly formatted");
+            throw new IllegalArgumentException("network was incorrectly formatted (make sure it follows the CIDR format)");
         }
         try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
             BlockingQueue<String> hosts = new LinkedBlockingQueue<>(network.get());
@@ -67,51 +70,86 @@ public class Host implements Callable<String> {
 
     private static void checkHostsReachability(BlockingQueue<String> hosts, ConcurrentMap<String, Boolean> scans) throws NotOpenException, PcapNativeException, InterruptedException {
         PcapNetworkInterface networkInterface = NMapUtility.findNetworkInterface();
-        while (!Thread.currentThread().isInterrupted() && !hosts.isEmpty()) {
-            String host = hosts.poll();
-            if (host == null) {
-                break;
-            }
-            try {
-                InetAddress address = InetAddress.getByName(host);
-                boolean isReachable = checkHostReachability(networkInterface, address);
-                scans.put(address.toString(), isReachable);
-            } catch (UnknownHostException exception) {
-                scans.put(host, false);
+        InetAddress sourceIpAddress = NMapUtility.findIpAddress(networkInterface);
+        MacAddress sourceMacAddress = NMapUtility.findMacAddress(networkInterface);
+        try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            while (!Thread.currentThread().isInterrupted() && !hosts.isEmpty()) {
+                String host = hosts.poll();
+                if (host == null) {
+                    continue;
+                }
+                try {
+                    InetAddress destinationIpAddress = InetAddress.getByName(host);
+                    boolean isReachable = checkHostReachability(executor, networkInterface, sourceIpAddress, sourceMacAddress, destinationIpAddress);
+                    scans.put(destinationIpAddress.toString(), isReachable);
+                } catch (UnknownHostException exception) {
+                    scans.put(host, false);
+                }
             }
         }
     }
 
-    private static boolean checkHostReachability(PcapNetworkInterface networkInterface, InetAddress destinationIpAddress) throws NotOpenException, PcapNativeException, InterruptedException {
-        Optional<MacAddress> destinationMacAddress = resolveHostMacAddress(networkInterface, destinationIpAddress);
+    private static boolean checkHostReachability(ExecutorService executor, PcapNetworkInterface networkInterface, InetAddress sourceIpAddress, MacAddress sourceMacAddress, InetAddress destinationIpAddress) throws NotOpenException, PcapNativeException, InterruptedException {
+        if (destinationIpAddress.equals(sourceIpAddress)) {
+            return true;
+        }
+        Optional<MacAddress> destinationMacAddress = resolveHostMacAddress(executor, networkInterface, sourceIpAddress, sourceMacAddress, destinationIpAddress);
         if (destinationMacAddress.isEmpty()) {
             return false;
         }
-        try (PcapHandle handle = networkInterface.openLive(NMapConstants.DEFAULT_LENGTH, PcapNetworkInterface.PromiscuousMode.NONPROMISCUOUS, NMapConstants.MINIMUM_REQUEST_TIMEOUT)) {
-            handle.setFilter("icmp and src host %s".formatted(Pcaps.toBpfString(destinationIpAddress)), BpfProgram.BpfCompileMode.OPTIMIZE);
-            handle.sendPacket(NMapUtility.buildIcmpPacket(
-                    networkInterface.getAddresses().getFirst().getAddress(),
-                    MacAddress.getByAddress(networkInterface.getLinkLayerAddresses().getFirst().getAddress()),
+        try (
+                PcapHandle sendHandle = networkInterface.openLive(NMapConstants.SNAP_LENGTH, PcapNetworkInterface.PromiscuousMode.NONPROMISCUOUS, NMapConstants.HANDLE_TIMEOUT);
+                PcapHandle receiveHandle = networkInterface.openLive(NMapConstants.SNAP_LENGTH, PcapNetworkInterface.PromiscuousMode.NONPROMISCUOUS, NMapConstants.HANDLE_TIMEOUT)
+        ) {
+            receiveHandle.setFilter("icmp and icmp[0] = 0 and src host %s and ether src %s and dst host %s and ether dst %s".formatted(
+                    Pcaps.toBpfString(destinationIpAddress),
+                    Pcaps.toBpfString(destinationMacAddress.get()),
+                    Pcaps.toBpfString(sourceIpAddress),
+                    Pcaps.toBpfString(sourceMacAddress)
+            ), BpfProgram.BpfCompileMode.OPTIMIZE);
+            Future<Boolean> future = executor.submit(new ListenerTask<>(receiveHandle, new IcmpPacketListener(receiveHandle)));
+            sendHandle.sendPacket(NMapUtility.buildIcmpPacket(
+                    sourceIpAddress,
+                    sourceMacAddress,
                     destinationIpAddress,
                     destinationMacAddress.get()
             ));
-            AtomicBoolean isReachable = new AtomicBoolean(false);
-            handle.loop(1, new IcmpPacketListener(isReachable));
-            return isReachable.get();
+            try {
+                return future.get(NMapConstants.LISTENER_TIMEOUT, TimeUnit.MILLISECONDS);
+            } catch (ExecutionException | TimeoutException ignored) {
+                receiveHandle.breakLoop();
+                future.cancel(true);
+                return false;
+            }
         }
     }
 
-    private static Optional<MacAddress> resolveHostMacAddress(PcapNetworkInterface networkInterface, InetAddress destinationIpAddress) throws PcapNativeException, NotOpenException, InterruptedException {
-        try (PcapHandle handle = networkInterface.openLive(NMapConstants.DEFAULT_LENGTH, PcapNetworkInterface.PromiscuousMode.NONPROMISCUOUS, NMapConstants.MINIMUM_REQUEST_TIMEOUT)) {
-            handle.setFilter("arp", BpfProgram.BpfCompileMode.OPTIMIZE);
-            handle.sendPacket(NMapUtility.buildArpPacket(
-                    networkInterface.getAddresses().getFirst().getAddress(),
-                    MacAddress.getByAddress(networkInterface.getLinkLayerAddresses().getFirst().getAddress()),
+    private static Optional<MacAddress> resolveHostMacAddress(ExecutorService executor, PcapNetworkInterface networkInterface, InetAddress sourceIpAddress, MacAddress sourceMacAddress, InetAddress destinationIpAddress) throws PcapNativeException, NotOpenException, InterruptedException {
+        if (destinationIpAddress.equals(sourceIpAddress)) {
+            return Optional.of(sourceMacAddress);
+        }
+        try (
+                PcapHandle sendHandle = networkInterface.openLive(NMapConstants.SNAP_LENGTH, PcapNetworkInterface.PromiscuousMode.NONPROMISCUOUS, NMapConstants.HANDLE_TIMEOUT);
+                PcapHandle receiveHandle = networkInterface.openLive(NMapConstants.SNAP_LENGTH, PcapNetworkInterface.PromiscuousMode.NONPROMISCUOUS, NMapConstants.HANDLE_TIMEOUT)
+        ) {
+            receiveHandle.setFilter("arp and arp[6:2] = 2 and src host %s and dst host %s and ether dst %s".formatted(
+                    Pcaps.toBpfString(destinationIpAddress),
+                    Pcaps.toBpfString(sourceIpAddress),
+                    Pcaps.toBpfString(sourceMacAddress)
+            ), BpfProgram.BpfCompileMode.OPTIMIZE);
+            Future<Optional<MacAddress>> future = executor.submit(new ListenerTask<>(receiveHandle, new ArpPacketListener(receiveHandle)));
+            sendHandle.sendPacket(NMapUtility.buildArpPacket(
+                    sourceIpAddress,
+                    sourceMacAddress,
                     destinationIpAddress
             ));
-            ArpPacketListener listener = new ArpPacketListener(handle, destinationIpAddress);
-            handle.loop(1, listener);
-            return listener.result();
+            try {
+                return future.get(NMapConstants.LISTENER_TIMEOUT, TimeUnit.MILLISECONDS);
+            } catch (ExecutionException | TimeoutException ignored) {
+                receiveHandle.breakLoop();
+                future.cancel(true);
+                return Optional.empty();
+            }
         }
     }
 
