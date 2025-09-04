@@ -32,7 +32,7 @@ public enum HttpVersion {
 
     public static HttpVersion versionOf(short version) {
         for (HttpVersion httpVersion : HttpVersion.values()) {
-            if (httpVersion.number == version && httpVersion.isSupported) {
+            if (httpVersion.number() == version && httpVersion.isSupported()) {
                 return httpVersion;
             }
         }

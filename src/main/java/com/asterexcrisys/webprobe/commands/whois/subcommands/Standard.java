@@ -1,5 +1,6 @@
 package com.asterexcrisys.webprobe.commands.whois.subcommands;
 
+import com.asterexcrisys.webprobe.constants.GlobalConstants;
 import com.asterexcrisys.webprobe.constants.WhoIsConstants;
 import com.asterexcrisys.webprobe.utilities.WhoIsUtility;
 import picocli.CommandLine.Parameters;
@@ -28,16 +29,16 @@ public class Standard implements Callable<String> {
     @Option(names = {"-a", "--address"}, description = "The flag to signal whether the target is a domain or an address (optional).", defaultValue = "false")
     private boolean isAddress;
 
-    @Option(names = {"-t", "--timeout"}, description = "The timeout for the request in seconds (optional).", defaultValue = "5000")
+    @Option(names = {"-t", "--timeout"}, description = "The timeout for the request in milliseconds (optional).", defaultValue = "5000")
     private long timeout;
 
     @Override
     public String call() throws Exception {
-        if (port < WhoIsConstants.MINIMUM_VALID_PORT || port > WhoIsConstants.MAXIMUM_VALID_PORT) {
-            throw new IllegalArgumentException("port must be within the range [%s, %s]".formatted(WhoIsConstants.MINIMUM_VALID_PORT, WhoIsConstants.MAXIMUM_VALID_PORT));
+        if (port < GlobalConstants.MINIMUM_VALID_PORT || port > GlobalConstants.MAXIMUM_VALID_PORT) {
+            throw new IllegalArgumentException("port must be within the range [%s, %s]".formatted(GlobalConstants.MINIMUM_VALID_PORT, GlobalConstants.MAXIMUM_VALID_PORT));
         }
-        if (timeout < WhoIsConstants.MINIMUM_REQUEST_TIMEOUT) {
-            throw new IllegalArgumentException("timeout must be greater than %s seconds".formatted(WhoIsConstants.MINIMUM_REQUEST_TIMEOUT));
+        if (timeout < GlobalConstants.MINIMUM_REQUEST_TIMEOUT) {
+            throw new IllegalArgumentException("timeout must be greater than %s seconds".formatted(GlobalConstants.MINIMUM_REQUEST_TIMEOUT));
         }
         if (!WhoIsUtility.isRegistryValid(registry)) {
             throw new IllegalArgumentException("registry was either incorrectly formatted or not recognized");

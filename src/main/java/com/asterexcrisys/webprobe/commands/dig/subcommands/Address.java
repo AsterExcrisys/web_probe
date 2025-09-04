@@ -1,6 +1,6 @@
 package com.asterexcrisys.webprobe.commands.dig.subcommands;
 
-import com.asterexcrisys.webprobe.constants.DigConstants;
+import com.asterexcrisys.webprobe.constants.GlobalConstants;
 import com.asterexcrisys.webprobe.utilities.DigUtility;
 import org.xbill.DNS.*;
 import org.xbill.DNS.Record;
@@ -24,8 +24,8 @@ public class Address implements Callable<String> {
 
     @Override
     public String call() throws Exception {
-        if (port < DigConstants.MINIMUM_VALID_PORT || port > DigConstants.MAXIMUM_VALID_PORT) {
-            throw new IllegalArgumentException("port must be within the range [%s, %s]".formatted(DigConstants.MINIMUM_VALID_PORT, DigConstants.MAXIMUM_VALID_PORT));
+        if (port < GlobalConstants.MINIMUM_VALID_PORT || port > GlobalConstants.MAXIMUM_VALID_PORT) {
+            throw new IllegalArgumentException("port must be within the range [%s, %s]".formatted(GlobalConstants.MINIMUM_VALID_PORT, GlobalConstants.MAXIMUM_VALID_PORT));
         }
         Optional<Resolver[]> resolvers = DigUtility.parseResolvers(this.resolvers, port);
         if (resolvers.isEmpty()) {

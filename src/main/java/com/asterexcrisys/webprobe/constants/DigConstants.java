@@ -10,9 +10,6 @@ public final class DigConstants {
             "DOMAIN", "Makes a DNS lookup request to the specified name server (resolver).",
             "ADDRESS", "Makes a DNS reverse-lookup request to the specified name server (resolver)."
     );
-    public static final int MINIMUM_VALID_PORT = 1;
-    public static final int MAXIMUM_VALID_PORT = 65535;
     public static final String DEFAULT_RESOLVER = "127.0.0.1";
-    public static final int DEFAULT_TIMEOUT = 5000;
 
 }

@@ -1,6 +1,7 @@
 package com.asterexcrisys.webprobe.utilities;
 
 import com.asterexcrisys.webprobe.constants.DigConstants;
+import com.asterexcrisys.webprobe.constants.GlobalConstants;
 import org.xbill.DNS.Resolver;
 import org.xbill.DNS.SimpleResolver;
 import java.io.IOException;
@@ -17,7 +18,7 @@ public final class DigUtility {
         }
         List<Resolver> results = new ArrayList<>();
         for (String resolver : resolvers.split("@")) {
-            if (!InetAddress.getByName(resolver).isReachable(DigConstants.DEFAULT_TIMEOUT)) {
+            if (!InetAddress.getByName(resolver).isReachable(GlobalConstants.DEFAULT_TIMEOUT)) {
                 return Optional.empty();
             }
             Resolver result = new SimpleResolver(resolver);

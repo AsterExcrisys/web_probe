@@ -17,6 +17,5 @@ public final class CUrlConstants {
             "TRACE", "Makes a HTTP(S) TRACE request to the specified URL."
     );
     public static final String USER_AGENT = "WebProbe/1.0.0";
-    public static final long MINIMUM_REQUEST_TIMEOUT = 1000;
 
 }

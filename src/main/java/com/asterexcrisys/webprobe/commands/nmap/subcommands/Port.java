@@ -1,5 +1,6 @@
 package com.asterexcrisys.webprobe.commands.nmap.subcommands;
 
+import com.asterexcrisys.webprobe.constants.GlobalConstants;
 import com.asterexcrisys.webprobe.constants.NMapConstants;
 import com.asterexcrisys.webprobe.services.ArpPacketListener;
 import com.asterexcrisys.webprobe.services.ListenerTask;
@@ -32,7 +33,7 @@ public class Port implements Callable<String> {
             throw new IllegalArgumentException("host was either incorrectly formatted or not a valid address");
         }
         try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
-            AtomicInteger ports = new AtomicInteger(NMapConstants.MINIMUM_PORT_NUMBER);
+            AtomicInteger ports = new AtomicInteger(GlobalConstants.MINIMUM_VALID_PORT);
             ConcurrentMap<Integer, PortState> scans = new ConcurrentHashMap<>();
             CountDownLatch latch = new CountDownLatch(10);
             for (int i = 0; i < 10; i++) {
@@ -108,17 +109,17 @@ public class Port implements Callable<String> {
         InetAddress sourceIpAddress = NMapUtility.findIpAddress(networkInterface);
         int sourcePort = NMapUtility.findAvailablePort();
         try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
-            while (!Thread.currentThread().isInterrupted() && ports.get() != NMapConstants.NULL_PORT_NUMBER) {
+            while (!Thread.currentThread().isInterrupted() && ports.get() != GlobalConstants.NULL_INVALID_PORT) {
                 int destinationPort = ports.getAndUpdate((value) -> {
-                    if (value == NMapConstants.NULL_PORT_NUMBER) {
+                    if (value == GlobalConstants.NULL_INVALID_PORT) {
                         return value;
                     }
-                    if (value + 1 > NMapConstants.MAXIMUM_PORT_NUMBER) {
-                        return NMapConstants.NULL_PORT_NUMBER;
+                    if (value + 1 > GlobalConstants.MAXIMUM_VALID_PORT) {
+                        return GlobalConstants.NULL_INVALID_PORT;
                     }
                     return value + 1;
                 });
-                if (destinationPort == NMapConstants.NULL_PORT_NUMBER) {
+                if (destinationPort == GlobalConstants.NULL_INVALID_PORT) {
                     break;
                 }
                 PortState state = checkPortReachability(executor, networkInterface, sourceMacAddress, sourceIpAddress, sourcePort, destinationMacAddress, destinationIpAddress, destinationPort);

@@ -1,6 +1,6 @@
 package com.asterexcrisys.webprobe.commands.curl.subcommands;
 
-import com.asterexcrisys.webprobe.constants.CUrlConstants;
+import com.asterexcrisys.webprobe.constants.GlobalConstants;
 import com.asterexcrisys.webprobe.types.HttpMethod;
 import com.asterexcrisys.webprobe.types.HttpVersion;
 import com.asterexcrisys.webprobe.utilities.CUrlUtility;
@@ -30,7 +30,7 @@ public class Put implements Callable<String> {
     @Option(names = {"-b", "--body"}, description = "The body to add onto the request (optional).", defaultValue = "")
     private String body;
 
-    @Option(names = {"-t", "--timeout"}, description = "The timeout for the request in seconds (optional).", defaultValue = "5000")
+    @Option(names = {"-t", "--timeout"}, description = "The timeout for the request in milliseconds (optional).", defaultValue = "5000")
     private long timeout;
 
     @Option(names = {"-v", "--version"}, description = "The version of the HTTP(S) protocol to use (optional).", defaultValue = "2")
@@ -42,8 +42,8 @@ public class Put implements Callable<String> {
         if (headers.isEmpty()) {
             throw new IllegalArgumentException("headers are incorrectly formatted");
         }
-        if (timeout < CUrlConstants.MINIMUM_REQUEST_TIMEOUT) {
-            throw new IllegalArgumentException("timeout must be greater than %s seconds".formatted(CUrlConstants.MINIMUM_REQUEST_TIMEOUT));
+        if (timeout < GlobalConstants.MINIMUM_REQUEST_TIMEOUT) {
+            throw new IllegalArgumentException("timeout must be greater than %s seconds".formatted(GlobalConstants.MINIMUM_REQUEST_TIMEOUT));
         }
         HttpVersion version = HttpVersion.versionOf(this.version);
         if (version == null) {
@@ -57,7 +57,7 @@ public class Put implements Callable<String> {
                             HttpMethod.PUT.name(),
                             body.isBlank()? HttpRequest.BodyPublishers.noBody():HttpRequest.BodyPublishers.ofString(body)
                     )
-                    .timeout(Duration.ofSeconds(timeout))
+                    .timeout(Duration.ofMillis(timeout))
                     .version(version.version())
                     .build();
             HttpResponse<String> response = client.send(

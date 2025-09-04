@@ -11,13 +11,12 @@ import org.pcap4j.packet.*;
 import org.pcap4j.packet.namednumber.*;
 import org.pcap4j.util.ByteArrays;
 import org.pcap4j.util.MacAddress;
-import java.io.IOException;
 import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.util.*;
 
-public class NMapUtility {
+public final class NMapUtility {
 
     public static boolean isLocalNetwork(String networkAddress) throws PcapNativeException {
         if (networkAddress == null || networkAddress.isBlank()) {
@@ -86,50 +85,45 @@ public class NMapUtility {
 
     public static PcapNetworkInterface findNetworkInterface() throws PcapNativeException {
         return Pcaps.findAllDevs().stream().filter((device) -> {
-            try {
-                return !device.getAddresses().isEmpty()
-                        && device.getAddresses().stream().anyMatch((address) -> address.getAddress() != null && address.getAddress() instanceof Inet4Address);
-            } catch (Exception exception) {
+            if (device == null || device.getAddresses().isEmpty()) {
                 return false;
             }
+            return device.getAddresses().stream().anyMatch((address) -> address.getAddress() != null && address.getAddress() instanceof Inet4Address);
         }).findFirst().orElseThrow(() -> new PcapNativeException("no network interface found on the device"));
     }
 
     public static MacAddress findMacAddress(PcapNetworkInterface networkInterface) throws PcapNativeException {
         return MacAddress.getByAddress(networkInterface.getLinkLayerAddresses().stream().filter((address) -> {
-            try {
-                return address instanceof MacAddress;
-            } catch (Exception exception) {
+            if (address == null) {
                 return false;
             }
+            return address instanceof MacAddress;
         }).findFirst().orElseThrow(() -> new PcapNativeException("no mac address found on the network interface")).getAddress());
     }
 
     public static InetAddress findIpAddress(PcapNetworkInterface networkInterface) throws PcapNativeException {
         return networkInterface.getAddresses().stream().filter((address) -> {
-            try {
-                return address.getAddress() instanceof Inet4Address;
-            } catch (Exception exception) {
+            if (address == null) {
                 return false;
             }
+            return address.getAddress() instanceof Inet4Address;
         }).findFirst().orElseThrow(() -> new PcapNativeException("no ip address found on the network interface")).getAddress();
     }
 
     public static int findAvailablePort() throws PcapNativeException {
         try (ServerSocket socket = new ServerSocket(0)) {
             return socket.getLocalPort();
-        } catch (IOException exception) {
+        } catch (Exception exception) {
             throw new PcapNativeException("no available port found on this device");
         }
     }
 
     public static InetAddress findNetworkMask(PcapNetworkInterface networkInterface) throws PcapNativeException {
         return networkInterface.getAddresses().stream().filter((address) -> {
-            try {
-                return address.getAddress() instanceof Inet4Address;
-            } catch (Exception exception) {
+            if (address == null) {
                 return false;
             }
+            return address.getAddress() instanceof Inet4Address;
         }).findFirst().orElseThrow(() -> new PcapNativeException("no network mask found on the network interface")).getNetmask();
     }
 
@@ -234,7 +228,7 @@ public class NMapUtility {
                 return Optional.empty();
             }
             return Optional.of(ArpPacket.newPacket(payload.getRawData(), 0, payload.length()));
-        } catch (IllegalRawDataException exception) {
+        } catch (Exception exception) {
             return Optional.empty();
         }
     }
@@ -256,7 +250,7 @@ public class NMapUtility {
                 return Optional.empty();
             }*/
             return Optional.of(IcmpV4CommonPacket.newPacket(payload.getRawData(), 20, payload.length() - 20));
-        } catch (IllegalRawDataException exception) {
+        } catch (Exception exception) {
             return Optional.empty();
         }
     }
@@ -278,7 +272,7 @@ public class NMapUtility {
                 return Optional.empty();
             }*/
             return Optional.of(TcpPacket.newPacket(payload.getRawData(), 20, payload.length() - 20));
-        } catch (IllegalRawDataException exception) {
+        } catch (Exception exception) {
             return Optional.empty();
         }
     }
