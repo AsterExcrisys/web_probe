@@ -1,7 +1,6 @@
 # WebProbe
 
-**WebProbe** is a modern, command-line network probing tool written in Java 21.  
-It leverages packet capturing, DNS querying, and IP address analysis to inspect and analyze network behavior from the terminal.
+**WebProbe** is a modern, command-line network probing tool written in Java 21. This projects aims to take different web/network probing tools (such as CUrl or NMap) and include them into a single application. Be aware, however, that the tools supported by this application are actually just attempted portings of the originals to Java, thus they are not as reliable.
 
 > Possible future name: **NetProbe**
 
